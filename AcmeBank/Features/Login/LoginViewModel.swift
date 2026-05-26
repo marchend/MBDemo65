@@ -6,13 +6,17 @@ import Foundation
 /// `signInTapped()` as the single action entry point. Authentication
 /// logic is injected via the `onSignIn` closure so the ViewModel
 /// remains testable without any networking or Okta dependency.
+///
+/// Note: `isPasswordVisible` is intentionally **not** held here. It is
+/// a pure UI presentation decision (whether to mask the password field)
+/// and belongs in `LoginView` as a `@State` property per the MVVM rule
+/// that ViewModels contain zero UI presentation decisions.
 final class LoginViewModel: ObservableObject {
 
     // MARK: - Published State
 
     @Published var username: String = ""
     @Published var password: String = ""
-    @Published var isPasswordVisible: Bool = false
     @Published var keepMeSignedIn: Bool = false
     @Published var errorMessage: String? = nil
 
