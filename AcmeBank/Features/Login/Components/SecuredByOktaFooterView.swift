@@ -20,10 +20,10 @@ struct SecuredByOktaFooterView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "person.badge.key.fill")
                         .font(.caption)
-                        .foregroundStyle(Color(red: 0.0, green: 0.58, blue: 0.83))
+                        .foregroundStyle(Color.oktaBrand)
                     Text("Okta")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color(red: 0.0, green: 0.58, blue: 0.83))
+                        .foregroundStyle(Color.oktaBrand)
                 }
 
                 Spacer()

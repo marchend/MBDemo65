@@ -20,6 +20,11 @@ final class LoginViewUITests: XCTestCase {
         try super.setUpWithError()
         continueAfterFailure = false
         app = XCUIApplication()
+        // bootstrap.md §13.2: pass -UITestMode YES so the app can swap in
+        // mock repositories at the boundary.  The flag is a no-op for the
+        // current stub sign-in, but the wiring point must be in place before
+        // the follow-up Okta auth story lands.
+        app.launchArguments += ["-UITestMode", "YES"]
         app.launch()
     }
 
@@ -136,27 +141,26 @@ final class LoginViewUITests: XCTestCase {
                       "Checkbox should still exist after second tap")
     }
 
-    /// Verifies that tapping "Need help?" presents a sheet (the
-    /// SFSafariViewController modal) and that the app does not crash.
+    /// Verifies that tapping "Need help?" presents `SFSafariViewController`.
+    ///
+    /// `SFSafariViewController` is presented synchronously — the "Done" button
+    /// appears in the accessibility tree immediately, before any network load.
+    /// This assertion will go red if the `showHelpSheet` binding is never
+    /// toggled, giving a real signal rather than a trivially-true liveness
+    /// check.
     func test_needHelp_opensSafariSheet() {
         XCTAssertTrue(needHelpButton.waitForExistence(timeout: 3),
                       "Need help? button should exist")
 
         needHelpButton.tap()
 
-        // After tapping, a sheet should have been presented. We confirm
-        // this by verifying that a `Done` or navigation element appears,
-        // or — at a minimum — that the app didn't crash and the login
-        // screen is still alive.
-        //
-        // SFSafariViewController loads asynchronously; on CI the network
-        // may be blocked. We only assert liveness here.
-        let loginViewStillLive = app.otherElements["LoginView"]
-            .waitForExistence(timeout: 0.5)
-        // Either the sheet appeared (LoginView is now off-screen) or the
-        // app is still showing LoginView — either is acceptable. The key
-        // assertion is that the process didn't crash.
-        XCTAssertTrue(app.exists, "App should still be running after tapping Need help?")
+        // SFSafariViewController is presented synchronously even without
+        // network.  Its "Done" button is accessible immediately on
+        // presentation, so this assertion is achievable in a CI environment
+        // with no connectivity.
+        let safariDone = app.buttons["Done"].waitForExistence(timeout: 3)
+        XCTAssertTrue(safariDone,
+                      "SafariVC 'Done' button should appear after tapping 'Need help?'")
     }
 
     /// Verifies that tapping "Open one" presents the placeholder sheet.
