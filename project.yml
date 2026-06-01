@@ -32,8 +32,13 @@ targets:
         # writes a sentinel that the runtime `OktaConfig` detects and
         # surfaces as `.notConfigured(reason:)`. See README "Okta build
         # configuration" for env-var setup.
+        #
+        # Invoked via `bash` (not as a direct executable) so the script's
+        # executable bit on disk is irrelevant — git on some filesystems
+        # drops filemode, which previously caused "Permission denied"
+        # when xcodebuild tried to exec the path directly.
         script: |
-          "${SRCROOT}/AcmeBank/Configuration/InjectOktaConfig.sh"
+          bash "${SRCROOT}/AcmeBank/Configuration/InjectOktaConfig.sh"
         inputFiles:
           - $(SRCROOT)/AcmeBank/Configuration/InjectOktaConfig.sh
   AcmeBankTests:
