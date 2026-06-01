@@ -36,8 +36,6 @@ targets:
           "${SRCROOT}/AcmeBank/Configuration/InjectOktaConfig.sh"
         inputFiles:
           - $(SRCROOT)/AcmeBank/Configuration/InjectOktaConfig.sh
-        outputFiles:
-          - $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)
   AcmeBankTests:
     type: bundle.unit-test
     platform: iOS
