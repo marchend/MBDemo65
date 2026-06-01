@@ -1,7 +1,7 @@
 # AcmeBank — Agent Guide
 
 ## Project Overview
-AcmeBank is an iOS banking app (iOS 17+, Swift 5.10, SwiftUI) that lets customers view accounts and transactions, initiate transfers, pay bills, and manage cards — secured via Okta OIDC authentication. This repository currently contains the bootstrap scaffold (Hello World shell); all production features are deferred to follow-up stories.
+AcmeBank is an iOS banking app (iOS 17+, Swift 5.10, SwiftUI) that lets customers view accounts and transactions, initiate transfers, pay bills, and manage cards — secured via Okta OIDC authentication. The app currently shows the LoginView on launch (auth integration deferred to follow-up stories).
 
 ## Tech Stack
 | Item | Value |
@@ -15,7 +15,7 @@ AcmeBank is an iOS banking app (iOS 17+, Swift 5.10, SwiftUI) that lets customer
 | DI | Constructor injection; no service locator |
 | Project file | XcodeGen `project.yml` — **never hand-edit `.pbxproj`** |
 | Unit tests | XCTest (`AcmeBankTests/`) |
-| UI tests | XCUITest (`AcmeBankUITests/`) — declared in future PR |
+| UI tests | XCUITest (`AcmeBankUITests/`) |
 | Bundle ID | `com.acmebank.mobile` |
 
 ## How to Run Locally
@@ -48,7 +48,7 @@ AcmeBank/                   ← SwiftUI source root (XcodeGen glob: sources: [Ac
   Domain/Repositories/      ← Protocol-only repository interfaces (deferred)
   Data/Remote/              ← APIRepository implementations (deferred)
   Data/Mock/                ← MockRepository implementations (deferred)
-  Features/Login/           ← LoginCoordinator, LoginView, LoginViewModel (deferred)
+  Features/Login/           ← LoginView + LoginViewModel (implemented); LoginCoordinator (deferred)
   Features/Home/            ← HomeCoordinator, HomeView, HomeViewModel (deferred)
   Features/Accounts/        ← (deferred)
   Features/Transfer/        ← (deferred)
@@ -56,10 +56,13 @@ AcmeBank/                   ← SwiftUI source root (XcodeGen glob: sources: [Ac
   DesignSystem/             ← Colors.swift, Typography.swift (deferred)
   Resources/                ← Assets.xcassets, PrivacyInfo.xcprivacy (implemented)
 AcmeBankTests/              ← XCTest unit tests
-AcmeBankUITests/            ← XCUITest end-to-end tests (deferred)
+AcmeBankUITests/            ← XCUITest end-to-end tests
 project.yml                 ← XcodeGen spec (source of truth for .xcodeproj)
 setup.sh                    ← one-shot materialisation script
 ```
+
+## Current App Entry Point
+`ContentView` (owned by `AcmeBankApp`) renders `LoginView` as the app root. `LoginViewModel.onSignIn` is a no-op stub — real Okta auth is wired in a follow-up story.
 
 ## Planned Architecture
 
@@ -92,11 +95,10 @@ Any Keychain query **must** include `kSecUseDataProtectionKeychain: true`. Witho
 - Networking layer (APIClient, APIRouter, APIError, RequestInterceptor) — future PR
 - Domain models (Account, Transaction, Customer, TransferRequest) — future PR
 - Repository protocols + Mock/Remote data layer — future PR
-- Feature screens (Login, Home, Accounts, Transfer, Cards, More) — future PRs per story
+- Feature screens (Home, Accounts, Transfer, Cards, More) — future PRs per story
 - Design system tokens (Colors, Typography) — future PR
 - Internal notifications (AppNotification, NotificationPublisher, NotificationKey) — future PR
 - Core extensions (Decimal+Currency, Date+Greeting, String+Initials) — future PR
-- XCUITest critical-flow tests (LoginUITests, TransferUITests) — future PRs per story
 - SwiftLint config (`.swiftlint.yml`, `-warnings-as-errors` xcconfig) — future PR
 - CI/CD pipeline (GitHub Actions `ios-build.yml`, xcconfig injection) — future PR
 - Okta.plist + `.plist.example` — future PR (auth story)
