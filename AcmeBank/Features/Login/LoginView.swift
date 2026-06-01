@@ -34,10 +34,10 @@ struct LoginView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
 
-                    // ── Address-bar branding strip ────────────────────
+                    // ── Address-bar branding strip ──────────────────────
                     OktaHeaderView()
 
-                    // ── Scrollable form content ───────────────────────
+                    // ── Scrollable form content ─────────────────────────
                     VStack(spacing: 20) {
 
                         // Logo + title + subtitle
@@ -70,7 +70,7 @@ struct LoginView: View {
 
                     Spacer(minLength: 0)
 
-                    // ── Footer ────────────────────────────────────────
+                    // ── Footer ──────────────────────────────────────────
                     SecuredByOktaFooterView()
                 }
                 .frame(minHeight: geo.size.height)
@@ -178,11 +178,40 @@ struct LoginView: View {
     }
 
     // "Keep me signed in" checkbox + "Need help?" button
+    //
+    // Implementation note: this is intentionally a plain `Button` rather
+    // than a `Toggle` + `CheckboxToggleStyle`. SwiftUI attaches
+    // `.accessibilityIdentifier` on a `Toggle` to the outer accessibility
+    // element, which exposes as a Switch/Other element — not a Button —
+    // so `app.buttons["LoginView.keepMeSignedInToggle"]` in XCUITest
+    // would never find it. Rendering the checkbox as a Button directly
+    // (and putting the identifier on that Button) makes the element
+    // discoverable as `app.buttons[...]`.
     private var rememberMeRow: some View {
         HStack(alignment: .center) {
-            Toggle("Keep me signed in", isOn: $viewModel.keepMeSignedIn)
-                .toggleStyle(CheckboxToggleStyle())
-                .accessibilityIdentifier("LoginView.keepMeSignedInToggle")
+            Button {
+                viewModel.keepMeSignedIn.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: viewModel.keepMeSignedIn
+                          ? "checkmark.square.fill"
+                          : "square")
+                        .font(.system(size: 20, weight: .regular))
+                        .foregroundStyle(viewModel.keepMeSignedIn
+                                         ? Color.acmeNavy
+                                         : Color(.secondaryLabel))
+
+                    Text("Keep me signed in")
+                        .font(.subheadline)
+                        .foregroundStyle(Color(.label))
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Keep me signed in")
+            .accessibilityValue(viewModel.keepMeSignedIn ? "On" : "Off")
+            .accessibilityIdentifier("LoginView.keepMeSignedInToggle")
 
             Spacer()
 
