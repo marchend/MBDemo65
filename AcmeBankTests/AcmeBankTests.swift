@@ -3,8 +3,15 @@ import XCTest
 
 final class AcmeBankTests: XCTestCase {
     /// Bootstrap proof-of-life: test target compiles + links against the app
-    /// module. Real behaviour tests belong in feature stories.
-    func test_contentView_initializes() {
-        _ = ContentView()
+    /// module. Real behaviour tests belong in feature stories. We
+    /// instantiate the composition root (`AcmeBankApp`) and the post-auth
+    /// landing screen so a future agent breaking either type's `init`
+    /// gets a fast unit-test failure rather than only a UI-test failure.
+    func test_appRoot_initializes() {
+        _ = AcmeBankApp()
+    }
+
+    func test_landingView_initializes() {
+        _ = LandingView(displayName: "Test User", email: "test@example.com")
     }
 }
