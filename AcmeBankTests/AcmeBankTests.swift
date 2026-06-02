@@ -12,15 +12,6 @@ final class AcmeBankTests: XCTestCase {
     }
 
     func test_landingView_initializes() {
-        _ = LandingView(
-            session: UserSession(
-                userId: "test-sub",
-                displayName: "Test User",
-                email: "test@example.com",
-                accessToken: "test-access-token",
-                authTimestamp: Date(timeIntervalSince1970: 0),
-                deviceName: "Test Device"
-            )
-        )
+        _ = LandingView(displayName: "Test User", email: "test@example.com")
     }
 }
