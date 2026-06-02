@@ -37,10 +37,22 @@ targets:
         # executable bit on disk is irrelevant — git on some filesystems
         # drops filemode, which previously caused "Permission denied"
         # when xcodebuild tried to exec the path directly.
+        #
+        # `alwaysOutOfDate: true` — the script's real input is the set of
+        # OKTA_* env vars, which Xcode cannot list as file dependencies.
+        # We MUST re-run on every build; otherwise incremental builds
+        # where only the env vars changed would silently deploy stale
+        # tenant config because the post-build Info.plist would still
+        # carry yesterday's injected values. We also deliberately omit
+        # `outputFiles` — declaring `$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)`
+        # there would collide with Xcode's own Info.plist processing step
+        # (risk of "multiple commands produce…" errors and of the post-
+        # build phase being skipped as "up to date").
         script: |
           bash "${SRCROOT}/AcmeBank/Configuration/InjectOktaConfig.sh"
         inputFiles:
           - $(SRCROOT)/AcmeBank/Configuration/InjectOktaConfig.sh
+        alwaysOutOfDate: true
   AcmeBankTests:
     type: bundle.unit-test
     platform: iOS

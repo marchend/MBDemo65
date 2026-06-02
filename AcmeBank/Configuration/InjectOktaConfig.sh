@@ -19,6 +19,13 @@
 # `.notConfigured(reason:)`, which the LoginViewModel surfaces in the
 # inline error banner. Hard-failing here would break CI builds that
 # deliberately run with no Okta secrets.
+#
+# `plutil` write failures, on the other hand, ARE surfaced — as Xcode
+# `warning:` lines from the `inject()` helper. A silently-swallowed
+# `plutil` failure would leave the sentinel in place and the app would
+# boot into the "not configured" banner with no build-time signal about
+# what actually went wrong. The "never hard-fail" rule applies only to
+# missing env vars; downstream tooling failures should be visible.
 
 set -u
 
@@ -38,12 +45,29 @@ inject() {
         value="${SENTINEL}"
         echo "note: InjectOktaConfig.sh: ${key} not set in build env — wrote sentinel"
     fi
-    /usr/bin/plutil -replace "${key}" -string "${value}" "${PLIST}"
+    # Capture stderr so the plutil diagnostic ends up in the Xcode build log
+    # alongside our `warning:` prefix (Xcode parses lines beginning with
+    # `warning:` and surfaces them in the Issue Navigator).
+    local plutil_err
+    if ! plutil_err="$(/usr/bin/plutil -replace "${key}" -string "${value}" "${PLIST}" 2>&1)"; then
+        echo "warning: InjectOktaConfig.sh: plutil -replace ${key} failed on ${PLIST}: ${plutil_err}"
+        return 1
+    fi
 }
 
-inject "OktaIssuer"      "${OKTA_ISSUER:-}"
-inject "OktaClientID"    "${OKTA_CLIENT_ID:-}"
-inject "OktaRedirectURI" "${OKTA_REDIRECT_URI:-}"
-inject "OktaScopes"      "${OKTA_SCOPES:-}"
+# Track whether any inject() call failed so we can emit a single summary
+# warning at the end. We intentionally do NOT `exit 1` — that would break
+# CI builds running without Okta secrets — but the per-key `warning:`
+# lines above (plus this summary) ensure plutil failures are visible in
+# the build log and Issue Navigator rather than silently swallowed.
+inject_failures=0
+inject "OktaIssuer"      "${OKTA_ISSUER:-}"      || inject_failures=$((inject_failures + 1))
+inject "OktaClientID"    "${OKTA_CLIENT_ID:-}"   || inject_failures=$((inject_failures + 1))
+inject "OktaRedirectURI" "${OKTA_REDIRECT_URI:-}" || inject_failures=$((inject_failures + 1))
+inject "OktaScopes"      "${OKTA_SCOPES:-}"      || inject_failures=$((inject_failures + 1))
+
+if [ "${inject_failures}" -gt 0 ]; then
+    echo "warning: InjectOktaConfig.sh: ${inject_failures} plutil write(s) failed — Info.plist may contain stale sentinels; runtime will route to .notConfigured(reason:)"
+fi
 
 exit 0

@@ -56,6 +56,32 @@ runtime `OktaConfig` detects the sentinel and returns
 error banner. CI builds with no Okta secrets still compile, launch, and
 exercise the UI — they just can't complete a real sign-in.
 
+### ⚠️ Never hand-edit `AcmeBank/Info.plist`
+
+`AcmeBank/Info.plist` **is** source-controlled (XcodeGen no longer
+auto-generates it now that we inject keys at build time), but the four
+`Okta*` values in it are placeholders — `__OKTA_NOT_CONFIGURED__`
+sentinels that the Run Script overwrites with real values when the env
+vars are set. **Do not paste real tenant credentials into this file.**
+
+- ❌ Editing `Info.plist` to "just try it quickly" with real Okta values
+  risks committing live tenant secrets — `.gitignore` does **not**
+  protect this file.
+- ✅ Set the four `OKTA_*` env vars (see below) and let the build phase
+  inject them. This is the only supported path; the sentinel values
+  always win in a clean repo, and CI verifies that.
+- ✅ If you need to add a **new** Info.plist key in the future (e.g.
+  `NSAppTransportSecurity` for local dev, `CFBundleURLTypes` for the
+  Okta redirect-URI scheme, a new privacy-usage string), edit
+  `AcmeBank/Info.plist` directly and commit the change — but only for
+  keys whose values are **not secrets**. Since
+  `GENERATE_INFOPLIST_FILE` is off, XcodeGen will no longer add these
+  keys for you.
+- 🔒 Before pushing, run `git diff --cached AcmeBank/Info.plist` and
+  confirm any `Okta*` keys still read `__OKTA_NOT_CONFIGURED__`. A
+  lightweight pre-commit hook covering this is a TODO for the team
+  once the workflow is in routine use.
+
 ### Three ways to set the env vars
 
 Pick the one that matches how you launch Xcode / `xcodebuild`:
