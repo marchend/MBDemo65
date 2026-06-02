@@ -114,9 +114,48 @@ public enum OktaConfig: Equatable {
     }
 
     /// Convenience: `true` only on the `.configured` branch. Useful for UI
-    /// gating and for XCUITest `XCTSkipUnless`.
+    /// gating and for unit-test `XCTSkipUnless`.
     public var isConfigured: Bool {
         if case .configured = self { return true }
         return false
+    }
+
+    // MARK: - XCUITest process-env probe
+
+    /// Static convenience used by XCUITest bundles to decide whether to
+    /// `XCTSkipUnless` on a build without real Okta secrets.
+    ///
+    /// **Why this is not just `load().isConfigured`:** a UI-test runner is
+    /// a separate process from the app under test; its `Bundle.main` is
+    /// the test runner bundle, NOT `AcmeBank.app`. The build-time
+    /// `InjectOktaConfig.sh` only writes the OKTA_* values into the
+    /// *app* Info.plist, so `OktaConfig.load()` inside the UI-test
+    /// process would always see the sentinels and report `false`.
+    ///
+    /// Instead, we replicate the *same* build-time check directly
+    /// against `ProcessInfo.processInfo.environment`. On CI without
+    /// secrets, none of the `OKTA_*` vars are exported into the test
+    /// runner's environment and this returns `false` — so the
+    /// end-to-end sign-in test skips cleanly. On a developer machine
+    /// (or CI job) where all four are exported into the test runner's
+    /// shell, the test runs.
+    public static var isConfigured: Bool {
+        return isConfigured(in: ProcessInfo.processInfo.environment)
+    }
+
+    /// Test seam: probe an explicit environment dictionary. The four
+    /// OKTA_* vars must all be present and non-empty (matching
+    /// `InjectOktaConfig.sh`'s build-time contract).
+    public static func isConfigured(in env: [String: String]) -> Bool {
+        let required = ["OKTA_ISSUER", "OKTA_CLIENT_ID", "OKTA_REDIRECT_URI", "OKTA_SCOPES"]
+        for key in required {
+            guard let value = env[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty,
+                  value != sentinel
+            else {
+                return false
+            }
+        }
+        return true
     }
 }

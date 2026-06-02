@@ -14,11 +14,11 @@ import Combine
 ///     and mapping any `AuthError` into the exact user-facing copy
 ///     declared in MD065-7.
 ///
-/// The async path is what `LoginView` wires up from this PR on. The
-/// closure path is left in place because the composition root (PR 4) is
-/// what will switch `ContentView` over to the real path; until then the
-/// closure-based unit tests in `LoginViewModelTests` still exercise the
-/// existing API surface unchanged.
+/// The async path is what `LoginView` invokes from the Sign-in button
+/// and what `AcmeBankApp` observes via `signedInSession` to swap the
+/// root to `LandingView`. The closure path is left in place because
+/// the `LoginViewModelTests` suite still exercises it; new wiring
+/// should target the async path.
 ///
 /// Annotated `@MainActor` to guarantee that every `@Published` mutation
 /// — including those *after* the `await authService.signIn(...)`
@@ -46,9 +46,11 @@ final class LoginViewModel: ObservableObject {
     /// field/button disable + spinner swap.
     @Published var isSigningIn: Bool = false
 
-    /// Populated on a successful `signIn(...)`. The composition root
-    /// (PR 4) observes this to drive navigation; this ViewModel never
-    /// presents or pushes anything itself.
+    /// Populated on a successful `signIn(...)`. `AcmeBankApp` (the
+    /// composition root) observes this on its `@StateObject`
+    /// `LoginViewModel` and swaps the root view from `LoginView` to
+    /// `LandingView(session:)` the moment it becomes non-nil. The
+    /// ViewModel never presents or pushes anything itself.
     @Published var signedInSession: UserSession? = nil
 
     // MARK: - Injected Action (legacy closure path)
@@ -129,8 +131,9 @@ final class LoginViewModel: ObservableObject {
     /// Drives `isSigningIn` so the view disables its fields + button and
     /// swaps in a spinner. On success, publishes the resulting
     /// `UserSession` via `signedInSession` (the composition root in
-    /// PR 4 observes this to navigate). On a typed `AuthError`, maps it
-    /// to the exact user-facing copy declared in MD065-7.
+    /// `AcmeBankApp` observes this to swap the root view). On a typed
+    /// `AuthError`, maps it to the exact user-facing copy declared in
+    /// MD065-7.
     ///
     /// Re-entry guard: a tap while a previous call is in flight is a
     /// no-op, so double-taps can't kick off a second concurrent

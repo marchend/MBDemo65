@@ -1,7 +1,7 @@
 # AcmeBank — Agent Guide
 
 ## Project Overview
-AcmeBank is an iOS banking app (iOS 17+, Swift 5.10, SwiftUI) that lets customers view accounts and transactions, initiate transfers, pay bills, and manage cards — secured via Okta OIDC authentication. The app currently shows the LoginView on launch (auth integration deferred to follow-up stories).
+AcmeBank is an iOS banking app (iOS 17+, Swift 5.10, SwiftUI) that lets customers view accounts and transactions, initiate transfers, pay bills, and manage cards — secured via Okta OIDC authentication. The app currently shows the LoginView on launch and, on a successful Okta sign-in, swaps the root to a minimal post-auth `LandingView`. Full feature screens are deferred to follow-up stories.
 
 ## Tech Stack
 | Item | Value |
@@ -10,7 +10,7 @@ AcmeBank is an iOS banking app (iOS 17+, Swift 5.10, SwiftUI) that lets customer
 | Language | Swift 5.10 |
 | UI Framework | SwiftUI |
 | Architecture | MVVM + Coordinator (`NavigationStack`) |
-| Auth | Okta OIDC via `okta-mobile-swift` `OktaDirectAuth` (in progress) |
+| Auth | Okta OIDC via `okta-mobile-swift` `OktaDirectAuth` (wired end-to-end) |
 | Networking | `URLSession` + async/await (deferred) |
 | DI | Constructor injection; no service locator |
 | Project file | XcodeGen `project.yml` — **never hand-edit `.pbxproj`** |
@@ -39,9 +39,10 @@ xcodebuild test \
 ## Key Directory Structure
 ```
 AcmeBank/                   ← SwiftUI source root (XcodeGen glob: sources: [AcmeBank])
-  App/                      ← @main entry point + root views (implemented)
-  Auth/                     ← UserSession, KeychainStore, AuthService, OktaAuthService (implemented; not yet wired into LoginViewModel)
+  App/                      ← @main entry point (`AcmeBankApp`) — composition root
+  Auth/                     ← UserSession, KeychainStore, AuthService, OktaAuthService (wired into LoginViewModel via composition root)
   Configuration/            ← OktaConfig.swift + InjectOktaConfig.sh Run Script (implemented)
+  Landing/                  ← LandingView (post-auth landing surface; placeholder until Home ships)
   Core/Networking/          ← APIClient, APIRouter, APIError, RequestInterceptor (deferred)
   Core/Notifications/       ← AppNotification, NotificationPublisher (deferred)
   Core/Extensions/          ← Decimal+Currency, Date+Greeting, String+Initials (deferred)
@@ -64,7 +65,16 @@ setup.sh                    ← one-shot materialisation script
 ```
 
 ## Current App Entry Point
-`ContentView` (owned by `AcmeBankApp`) renders `LoginView` as the app root. `LoginViewModel.onSignIn` is a no-op stub — real Okta auth is wired in a follow-up story.
+`AcmeBankApp` is the composition root. It constructs a single
+`LoginViewModel(authService: OktaAuthService(config: .load(), keychain: KeychainStore()))`,
+holds it as a `@StateObject`, and renders a private `RootView` that
+switches between `LoginView` and `LandingView(session:)` based on
+`LoginViewModel.signedInSession`. When `OktaConfig.load()` returns
+`.notConfigured`, the App pre-seeds `errorMessage` so the login screen
+shows the "Okta is not configured on this build — see README." banner
+on launch (CI without secrets stays runnable). There is no longer a
+`ContentView`; do not reintroduce one — composition lives in the
+`@main` App.
 
 ## Okta Build Configuration (IMPORTANT)
 Okta tenant values (`OKTA_ISSUER`, `OKTA_CLIENT_ID`, `OKTA_REDIRECT_URI`,
@@ -88,12 +98,13 @@ scripted `xcodebuild`).
 - **Coordinator** — `ObservableObject`; owns `NavigationStack` path; drives push/present declaratively; no imperative `push`/`present` from views.
 - **Coordinator hierarchy:** `AppCoordinator` → `LoginCoordinator` / `TabBarCoordinator` → (`HomeCoordinator`, `TransferCoordinator`, `CardsCoordinator`, `MoreCoordinator`).
 
-### Authentication — Okta OIDC (in progress)
+### Authentication — Okta OIDC (wired end-to-end)
 - `AuthService` protocol (`AcmeBank/Auth/AuthService.swift`): `signIn(username:password:keepSignedIn:) async throws -> UserSession`. Errors are typed via `AuthError` (`invalidCredentials`, `networkError`, `mfaRequired`, `notConfigured`, `unexpected`) — implementations MUST funnel everything through these cases so the UI's typed `catch let e as AuthError` never falls through to a generic catch.
 - Concrete `OktaAuthService` short-circuits `.notConfigured` before any network call and uses a `DirectAuthFlowFactory` seam so unit tests can inject a fake flow.
+- `LoginViewModel.signIn(...)` awaits the service, maps errors to the exact MD065-7 copy, and publishes the resulting `UserSession` on `signedInSession`. `AcmeBankApp` observes that property and swaps the root from `LoginView` to `LandingView(session:)`.
 - Tokens stored in Keychain via `KeychainStore` (always use `kSecUseDataProtectionKeychain: true` for CI simulator compatibility). Refresh token is persisted ONLY when "Keep me signed in" was checked; sign-in with the box unchecked actively *deletes* any stale refresh token.
 - Keychain write failures inside `signIn` are best-effort (logged, swallowed) — they MUST NOT collapse a successful Okta auth into a phantom `.networkError` banner.
-- `UserSession` value type passed through coordinators; never stored in `UserDefaults` or a global singleton. Refresh token is NOT a `UserSession` field — it lives only in the Keychain.
+- `UserSession` value type passed through SwiftUI navigation state; never stored in `UserDefaults`, `NotificationCenter`, or a global singleton. Refresh token is NOT a `UserSession` field — it lives only in the Keychain.
 - Tenant config loaded via `OktaConfig.load()` (see "Okta Build Configuration" above).
 
 ### Networking (deferred — future PR)
@@ -109,8 +120,8 @@ scripted `xcodebuild`).
 Any Keychain query **must** include `kSecUseDataProtectionKeychain: true`. Without this flag, `SecItem*` calls fail with `errSecMissingEntitlement` (-34018) in CI's `CODE_SIGNING_ALLOWED=NO` simulator runs. The `AcmeBank/AcmeBank.entitlements` file (already committed) handles the signed-device path; the flag handles the simulator path.
 
 ## Deferred Work
-- LoginViewModel wiring — call `OktaAuthService.signIn` from `onSignIn`, map `AuthError` to banner copy, drive `isSigningIn` loading state — future PR
-- MVVM+Coordinator wiring (AppCoordinator, RootView, TabBarCoordinator, all feature coordinators) — future PR
+- MVVM+Coordinator wiring (AppCoordinator, TabBarCoordinator, all feature coordinators) — future PR
+- Real Home screen replacing the post-auth `LandingView` placeholder — future PR
 - Networking layer (APIClient, APIRouter, APIError, RequestInterceptor) — future PR
 - Domain models (Account, Transaction, Customer, TransferRequest) — future PR
 - Repository protocols + Mock/Remote data layer — future PR
