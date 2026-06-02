@@ -79,10 +79,22 @@ final class NotConfiguredBannerUITests: XCTestCase {
     /// see README." and the post-auth `LandingView` greeting is NOT
     /// on screen.
     func test_launch_showsNotConfiguredBanner_andHidesWelcomeGreeting() {
-        // Confirm we landed on the LoginView (not LandingView).
-        let loginView = app.otherElements["LoginView"]
+        // Confirm we landed on the LoginView (not LandingView) by
+        // querying a child element that only exists on LoginView.
+        //
+        // We previously asserted on `app.otherElements["LoginView"]`,
+        // but SwiftUI/XCUITest on iOS 18.5 does not reliably expose
+        // an outer container's `.accessibilityIdentifier(...)` as a
+        // discoverable `otherElements` node when that container has
+        // interactive descendants (TextField/SecureField/Button/
+        // Toggle) — the container is shadowed by its children in the
+        // accessibility tree. Querying the sign-in button instead is
+        // robust (LoginViewUITests proves this locator resolves in
+        // <3s) and is sufficient to prove we are on LoginView:
+        // LandingView has no element with this identifier.
+        let signInButton = app.buttons["LoginView.signInButton"]
         XCTAssertTrue(
-            loginView.waitForExistence(timeout: 5),
+            signInButton.waitForExistence(timeout: 5),
             "LoginView should be the root view at launch — the composition root must not auto-navigate without a session"
         )
 
@@ -126,7 +138,7 @@ final class NotConfiguredBannerUITests: XCTestCase {
         }
 
         // The app must still be alive — no crash on the not-configured
-        // path. (Sanity check; if the app died `loginView.exists`
+        // path. (Sanity check; if the app died the signInButton check
         // would already have failed above.)
         XCTAssertTrue(app.exists, "App should still be running after launch on a not-configured build")
     }
