@@ -49,8 +49,8 @@ final class LoginViewModel: ObservableObject {
     /// Populated on a successful `signIn(...)`. `AcmeBankApp` (the
     /// composition root) observes this on its `@StateObject`
     /// `LoginViewModel` and swaps the root view from `LoginView` to
-    /// `LandingView(session:)` the moment it becomes non-nil. The
-    /// ViewModel never presents or pushes anything itself.
+    /// `LandingView(displayName:email:)` the moment it becomes non-nil.
+    /// The ViewModel never presents or pushes anything itself.
     @Published var signedInSession: UserSession? = nil
 
     // MARK: - Injected Action (legacy closure path)
@@ -80,18 +80,35 @@ final class LoginViewModel: ObservableObject {
 
     // MARK: - Init
 
-    /// - Parameter authService: the auth backend. Defaults to a real
-    ///   `OktaAuthService` reading `OktaConfig.load()` so production
-    ///   wiring needs no arguments; tests inject a fake.
-    init(
-        authService: AuthService = OktaAuthService(
-            config: .load(),
-            keychain: KeychainStore()
-        )
-    ) {
+    /// - Parameter authService: the auth backend. Every production
+    ///   call-site (currently just `AcmeBankApp`, the composition root)
+    ///   must supply an explicit service — the repo rule is
+    ///   "constructor injection; no service locator", so a
+    ///   production-valued default would leave an invisible
+    ///   silent-wrong-path for any future caller that forgot to pass
+    ///   one in. Tests inject a fake here directly.
+    init(authService: AuthService) {
         self.authService = authService
         wireErrorClearingOnEdit()
     }
+
+    #if DEBUG
+    /// DEBUG-only convenience initialiser for SwiftUI `#Preview` blocks
+    /// that need a `LoginViewModel` without spelling out a fake
+    /// `AuthService`. Builds a real `OktaAuthService` against
+    /// `OktaConfig.load()` — fine for previews (no network is actually
+    /// hit until Sign in is tapped, and previews never tap), but
+    /// deliberately unavailable in release builds so production cannot
+    /// silently bypass the composition root.
+    convenience init() {
+        self.init(
+            authService: OktaAuthService(
+                config: .load(),
+                keychain: KeychainStore()
+            )
+        )
+    }
+    #endif
 
     // MARK: - Combine wiring
 
@@ -187,10 +204,10 @@ final class LoginViewModel: ObservableObject {
         case .notConfigured:
             return "Okta is not configured on this build — see README."
         case .unexpected:
-            // No bespoke copy specified for this case in MD065-7 — pick
-            // a terse, actionable string so users see something rather
-            // than nothing. A dedicated copy string for `.unexpected` is
-            // a future-PR concern.
+            // No bespoke copy specified for this case in MD065-7 —
+            // pick a terse, actionable string so users see something
+            // rather than nothing. A dedicated copy string for
+            // `.unexpected` is a future-PR concern.
             return "Something went wrong signing you in. Please try again."
         }
     }

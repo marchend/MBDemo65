@@ -68,13 +68,22 @@ setup.sh                    ← one-shot materialisation script
 `AcmeBankApp` is the composition root. It constructs a single
 `LoginViewModel(authService: OktaAuthService(config: .load(), keychain: KeychainStore()))`,
 holds it as a `@StateObject`, and renders a private `RootView` that
-switches between `LoginView` and `LandingView(session:)` based on
-`LoginViewModel.signedInSession`. When `OktaConfig.load()` returns
-`.notConfigured`, the App pre-seeds `errorMessage` so the login screen
-shows the "Okta is not configured on this build — see README." banner
-on launch (CI without secrets stays runnable). There is no longer a
-`ContentView`; do not reintroduce one — composition lives in the
-`@main` App.
+switches between `LoginView` and `LandingView(displayName:email:)` based
+on `LoginViewModel.signedInSession`. The `RootView` deliberately passes
+only the two display strings to `LandingView` — not the full
+`UserSession` — so the live `accessToken` bearer never travels through
+SwiftUI's child-view diffing / state-restoration machinery. When
+`OktaConfig.load()` returns `.notConfigured`, the App pre-seeds
+`errorMessage` so the login screen shows the "Okta is not configured
+on this build — see README." banner on launch (CI without secrets
+stays runnable). There is no longer a `ContentView`; do not
+reintroduce one — composition lives in the `@main` App.
+
+`LoginViewModel.init(authService:)` has NO default value in release
+builds: every production call-site must pass an explicit `AuthService`
+(constructor injection; no service locator). A `#if DEBUG`-only
+no-argument convenience init exists for the SwiftUI `#Preview` blocks
+in `LoginView.swift`.
 
 ## Okta Build Configuration (IMPORTANT)
 Okta tenant values (`OKTA_ISSUER`, `OKTA_CLIENT_ID`, `OKTA_REDIRECT_URI`,
@@ -90,6 +99,19 @@ runnable app. See README "Okta build configuration" for the three
 ways to set the env vars (Finder-launched Xcode, shell-launched Xcode,
 scripted `xcodebuild`).
 
+## UI-Test Credential Injection (IMPORTANT)
+`SignInToLandingUITests` passes `OKTA_TEST_USERNAME` /
+`OKTA_TEST_PASSWORD` to the app via `XCUIApplication.launchEnvironment`
+— **never** via `typeText`. Xcode's default `XCTestObservation` logs
+`typeText` arguments into the test activity log, which on CI is
+typically retained as an artefact accessible to anyone with repo read
+access; routing the password through `typeText` would silently leak it.
+The app's composition root (`AcmeBankApp`) consumes those env vars
+ONLY when the explicit opt-in `UI_TEST_PREFILL_CREDENTIALS=1` flag is
+also present in the launch environment, so a developer machine with
+stray `OKTA_TEST_*` vars exported can never accidentally see its login
+form pre-populated.
+
 ## Planned Architecture
 
 ### MVVM + Coordinator (deferred — future PR)
@@ -101,7 +123,7 @@ scripted `xcodebuild`).
 ### Authentication — Okta OIDC (wired end-to-end)
 - `AuthService` protocol (`AcmeBank/Auth/AuthService.swift`): `signIn(username:password:keepSignedIn:) async throws -> UserSession`. Errors are typed via `AuthError` (`invalidCredentials`, `networkError`, `mfaRequired`, `notConfigured`, `unexpected`) — implementations MUST funnel everything through these cases so the UI's typed `catch let e as AuthError` never falls through to a generic catch.
 - Concrete `OktaAuthService` short-circuits `.notConfigured` before any network call and uses a `DirectAuthFlowFactory` seam so unit tests can inject a fake flow.
-- `LoginViewModel.signIn(...)` awaits the service, maps errors to the exact MD065-7 copy, and publishes the resulting `UserSession` on `signedInSession`. `AcmeBankApp` observes that property and swaps the root from `LoginView` to `LandingView(session:)`.
+- `LoginViewModel.signIn(...)` awaits the service, maps errors to the exact MD065-7 copy, and publishes the resulting `UserSession` on `signedInSession`. `AcmeBankApp` observes that property and swaps the root from `LoginView` to `LandingView(displayName:email:)` — passing only the two display strings, not the full `UserSession`, so the bearer token stays at the composition root.
 - Tokens stored in Keychain via `KeychainStore` (always use `kSecUseDataProtectionKeychain: true` for CI simulator compatibility). Refresh token is persisted ONLY when "Keep me signed in" was checked; sign-in with the box unchecked actively *deletes* any stale refresh token.
 - Keychain write failures inside `signIn` are best-effort (logged, swallowed) — they MUST NOT collapse a successful Okta auth into a phantom `.networkError` banner.
 - `UserSession` value type passed through SwiftUI navigation state; never stored in `UserDefaults`, `NotificationCenter`, or a global singleton. Refresh token is NOT a `UserSession` field — it lives only in the Keychain.

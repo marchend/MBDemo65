@@ -18,6 +18,20 @@ import AcmeBank
 /// probe — see the doc comment on that property for why
 /// `load().isConfigured` won't do (the UI test runner is a separate
 /// process with its own `Bundle.main`).
+///
+/// **Credential injection:** we pass the test account's username and
+/// password to the app under test via `XCUIApplication.launchEnvironment`,
+/// NOT via `typeText`. Xcode's default `XCTestObservation` logs the
+/// argument of every `typeText(_:)` call into the test activity log
+/// (the `.xcresult` bundle), which on CI is typically retained as a
+/// build artefact accessible to anyone with repo read access — i.e.
+/// `typeText(password)` would silently leak the test account's
+/// password into a low-trust artefact. `launchEnvironment` values are
+/// scoped to the app process and are not echoed into the activity log.
+/// The app under test honours the env injection only when the explicit
+/// `UI_TEST_PREFILL_CREDENTIALS=1` opt-in flag is also set, so a
+/// developer machine with stray `OKTA_TEST_*` vars exported can never
+/// accidentally see its login form pre-populated.
 final class SignInToLandingUITests: XCTestCase {
 
     // MARK: - Setup
@@ -28,7 +42,11 @@ final class SignInToLandingUITests: XCTestCase {
         try super.setUpWithError()
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launch()
+        // NOTE: do NOT call `app.launch()` here — the credential
+        // pre-fill values must be set into `launchEnvironment` BEFORE
+        // launch, which the individual tests do in their own setup
+        // section. Launching twice would be wasteful and the first
+        // launch wouldn't see the env values.
     }
 
     override func tearDownWithError() throws {
@@ -57,16 +75,50 @@ final class SignInToLandingUITests: XCTestCase {
             "OKTA_TEST_PASSWORD must be set when OKTA_* secrets are configured"
         )
 
-        // Type credentials into the login form.
+        // Even when the env vars are *present* they can be empty
+        // strings — a misconfigured CI job (e.g. one that sets the
+        // four build-time `OKTA_*` vars but forgets the test-account
+        // pair, so the shell exports empties) would otherwise fall
+        // through to the field-typing block and fail with an opaque
+        // "field did not exist" error. Skip with a clear message
+        // instead so the operator sees what's actually wrong.
+        try XCTSkipUnless(
+            !username.isEmpty && !password.isEmpty,
+            "OKTA_TEST_USERNAME / OKTA_TEST_PASSWORD are present but empty — check the CI job's test-account secrets"
+        )
+
+        // Pass credentials to the app via `launchEnvironment` so the
+        // app pre-populates the username / password fields itself.
+        // This avoids `typeText(password)`, which would echo the
+        // password into Xcode's test activity log. The opt-in
+        // sentinel `UI_TEST_PREFILL_CREDENTIALS=1` gates the app's
+        // consumption of these values — without it the app ignores
+        // the env vars entirely.
+        app.launchEnvironment["UI_TEST_PREFILL_CREDENTIALS"] = "1"
+        app.launchEnvironment["OKTA_TEST_USERNAME"] = username
+        app.launchEnvironment["OKTA_TEST_PASSWORD"] = password
+        app.launch()
+
+        // Confirm the fields were pre-populated. We don't type into
+        // them ourselves — the assertion is on `value`, not on a
+        // `typeText` call. The password field's `value` is bullets
+        // (since SwiftUI's `SecureField` masks it for accessibility),
+        // so we only assert non-empty rather than equality.
         let usernameField = app.textFields["LoginView.usernameField"]
         XCTAssertTrue(usernameField.waitForExistence(timeout: 5))
-        usernameField.tap()
-        usernameField.typeText(username)
+        XCTAssertEqual(
+            (usernameField.value as? String) ?? "",
+            username,
+            "Username field should be pre-populated by the app from launchEnvironment"
+        )
 
         let passwordField = app.secureTextFields["LoginView.passwordFieldSecure"]
         XCTAssertTrue(passwordField.waitForExistence(timeout: 3))
-        passwordField.tap()
-        passwordField.typeText(password)
+        let passwordValue = (passwordField.value as? String) ?? ""
+        XCTAssertFalse(
+            passwordValue.isEmpty,
+            "Password field should be pre-populated by the app from launchEnvironment (value is masked as bullets, only non-empty is checked)"
+        )
 
         // Tap Sign in.
         let signInButton = app.buttons["LoginView.signInButton"]

@@ -57,12 +57,39 @@ struct AcmeBankApp: App {
         if case .notConfigured = config {
             viewModel.errorMessage = LoginViewModel.copy(for: .notConfigured(""))
         }
+
+        // UI-test-only credential pre-fill. The end-to-end
+        // `SignInToLandingUITests` injects credentials via
+        // `XCUIApplication.launchEnvironment` (not `typeText`) so the
+        // test account's password never enters Xcode's test activity
+        // log. We only honour these values when an explicit opt-in
+        // sentinel (`UI_TEST_PREFILL_CREDENTIALS=1`) is also set, so a
+        // developer machine with stray `OKTA_TEST_*` env vars exported
+        // can never accidentally see its login form pre-populated.
+        Self.applyUITestPrefillIfRequested(to: viewModel)
+
         _loginViewModel = StateObject(wrappedValue: viewModel)
     }
 
     var body: some Scene {
         WindowGroup {
             RootView(viewModel: loginViewModel)
+        }
+    }
+
+    /// Pre-populate `viewModel.username` / `.password` from the app
+    /// process environment, but ONLY when the UI-test runner has set
+    /// the `UI_TEST_PREFILL_CREDENTIALS=1` opt-in flag via
+    /// `XCUIApplication.launchEnvironment`. Without that flag we leave
+    /// the fields blank no matter what env vars are present.
+    private static func applyUITestPrefillIfRequested(to viewModel: LoginViewModel) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["UI_TEST_PREFILL_CREDENTIALS"] == "1" else { return }
+        if let username = env["OKTA_TEST_USERNAME"], !username.isEmpty {
+            viewModel.username = username
+        }
+        if let password = env["OKTA_TEST_PASSWORD"], !password.isEmpty {
+            viewModel.password = password
         }
     }
 }
@@ -76,13 +103,21 @@ struct AcmeBankApp: App {
 /// thing on screen — no back-stack the user could accidentally pop
 /// back to the login form on. A coordinator-driven `NavigationStack`
 /// is a future-PR concern.
+///
+/// Note that we deliberately pass only the two display strings down
+/// into `LandingView` — not the full `UserSession`. The bearer
+/// `accessToken` stays at the composition root and never travels
+/// through child views. See `LandingView`'s doc comment for why.
 private struct RootView: View {
 
     @ObservedObject var viewModel: LoginViewModel
 
     var body: some View {
         if let session = viewModel.signedInSession {
-            LandingView(session: session)
+            LandingView(
+                displayName: session.displayName,
+                email: session.email
+            )
         } else {
             LoginView(viewModel: viewModel)
         }
