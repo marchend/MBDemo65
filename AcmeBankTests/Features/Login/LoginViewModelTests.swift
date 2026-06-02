@@ -2,6 +2,7 @@ import XCTest
 import Combine
 @testable import AcmeBank
 
+@MainActor
 final class LoginViewModelTests: XCTestCase {
 
     // MARK: - Fakes
@@ -9,7 +10,7 @@ final class LoginViewModelTests: XCTestCase {
     /// Auth service whose `signIn` returns a canned `UserSession` (success)
     /// or throws a canned `Error` (failure). Records the args it was
     /// called with so tests can assert wiring.
-    private final class FakeAuthService: AuthService {
+    private final class FakeAuthService: AuthService, @unchecked Sendable {
         var nextResult: Result<UserSession, Error>
         private(set) var callCount = 0
         private(set) var lastUsername: String?
@@ -39,9 +40,17 @@ final class LoginViewModelTests: XCTestCase {
     /// Auth service that suspends on `signIn` until the test resumes it
     /// via `release(with:)`. Used to observe `isSigningIn == true` while
     /// the call is in flight without racing the ViewModel's `defer`.
-    private final class GatedAuthService: AuthService, @unchecked Sendable {
+    ///
+    /// Implemented as an `actor` so the `continuation` field — written
+    /// by the awaiting Task inside `signIn(...)` and read+cleared by
+    /// `release(with:)` from the test's main thread — is protected by
+    /// actor isolation rather than `@unchecked Sendable`. The
+    /// `fulfillment(of: [started])` barrier in tests ensures the
+    /// continuation is set before `release(with:)` runs, so the actor
+    /// hop adds no observable ordering difference.
+    private actor GatedAuthService: AuthService {
         private var continuation: CheckedContinuation<UserSession, Error>?
-        let started = XCTestExpectation(description: "GatedAuthService.signIn started")
+        nonisolated let started = XCTestExpectation(description: "GatedAuthService.signIn started")
         private(set) var callCount = 0
 
         func signIn(
@@ -234,7 +243,7 @@ final class LoginViewModelTests: XCTestCase {
         // Let the AuthService return. The defer in signIn flips
         // isSigningIn back to false before the await returns to the
         // Task.
-        gate.release(with: .success(makeSession()))
+        await gate.release(with: .success(makeSession()))
         await task.value
 
         XCTAssertFalse(vm.isSigningIn,
@@ -256,17 +265,19 @@ final class LoginViewModelTests: XCTestCase {
         // no-op (no second AuthService call, no state thrash).
         await vm.signIn(username: "different", password: "creds", keepSignedIn: true)
 
-        XCTAssertEqual(gate.callCount, 1,
+        let callCountAfterSecondTap = await gate.callCount
+        XCTAssertEqual(callCountAfterSecondTap, 1,
                        "second signIn while in-flight must NOT call AuthService again")
         XCTAssertTrue(vm.isSigningIn,
                       "second tap must not flip isSigningIn back to false (the defer from a no-op would)")
 
         // Let the original call complete so the Task doesn't dangle.
-        gate.release(with: .success(makeSession()))
+        await gate.release(with: .success(makeSession()))
         await first.value
 
         XCTAssertFalse(vm.isSigningIn)
-        XCTAssertEqual(gate.callCount, 1,
+        let callCountAfterCompletion = await gate.callCount
+        XCTAssertEqual(callCountAfterCompletion, 1,
                        "still exactly one AuthService call after the original completes")
     }
 

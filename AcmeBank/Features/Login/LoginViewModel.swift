@@ -20,11 +20,17 @@ import Combine
 /// closure-based unit tests in `LoginViewModelTests` still exercise the
 /// existing API surface unchanged.
 ///
-/// Not annotated `@MainActor` so existing synchronous unit tests that
-/// instantiate the ViewModel directly compile unchanged. SwiftUI calls
-/// the async `signIn(...)` from a `Task` launched in a `@MainActor`
-/// body, so `@Published` mutations land on main; tests drive `signIn`
-/// from XCTest's main thread for the same reason.
+/// Annotated `@MainActor` to guarantee that every `@Published` mutation
+/// — including those *after* the `await authService.signIn(...)`
+/// suspension point — runs on the main thread. Without this annotation
+/// the post-await mutations would run on whatever executor the
+/// `AuthService` resumed onto (e.g. a background thread inside the Okta
+/// SDK), producing "Publishing changes from background threads is not
+/// allowed" runtime warnings and risking dropped renders. The
+/// annotation also makes the `isSigningIn` re-entry guard atomic: two
+/// Tasks racing into `signIn(...)` are now serialized on the main
+/// actor's executor, so the check-then-set can't interleave.
+@MainActor
 final class LoginViewModel: ObservableObject {
 
     // MARK: - Published State
@@ -129,6 +135,9 @@ final class LoginViewModel: ObservableObject {
     /// Re-entry guard: a tap while a previous call is in flight is a
     /// no-op, so double-taps can't kick off a second concurrent
     /// `AuthService.signIn` (which would also fight over the keychain).
+    /// Because the type is `@MainActor`-isolated, the check-then-set on
+    /// `isSigningIn` is atomic with respect to other Tasks awaiting
+    /// this method.
     func signIn(username: String, password: String, keepSignedIn: Bool) async {
         // Re-entry guard. Must be the very first thing — before we flip
         // any state — so a second tap mid-flight doesn't even reset the
