@@ -126,6 +126,7 @@ struct LoginView: View {
                         .strokeBorder(Color(.separator), lineWidth: 1)
                 )
                 .frame(minHeight: 44)
+                .disabled(viewModel.isSigningIn)
                 .accessibilityIdentifier("LoginView.usernameField")
         }
     }
@@ -174,6 +175,7 @@ struct LoginView: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(Color(.separator), lineWidth: 1)
             )
+            .disabled(viewModel.isSigningIn)
         }
     }
 
@@ -226,17 +228,43 @@ struct LoginView: View {
         }
     }
 
-    // "Sign in" button
+    // "Sign in" button.
+    //
+    // While `viewModel.isSigningIn` is true the button label is replaced
+    // with a `ProgressView` and the button is disabled so a second tap
+    // can't enqueue a concurrent sign-in. The closure-based callsite
+    // (`viewModel.signInTapped()`) is replaced with a direct `Task` that
+    // awaits the new async path (`viewModel.signIn(...)`) — this is the
+    // MD065-7 wiring change. The legacy closure path on `LoginViewModel`
+    // remains in place for the preview / existing tests, but the View
+    // no longer routes through it.
     private var signInButton: some View {
         Button {
-            viewModel.signInTapped()
+            let username = viewModel.username
+            let password = viewModel.password
+            let keepSignedIn = viewModel.keepMeSignedIn
+            Task {
+                await viewModel.signIn(
+                    username: username,
+                    password: password,
+                    keepSignedIn: keepSignedIn
+                )
+            }
         } label: {
-            Text("Sign in")
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 44)
-                .padding(.vertical, 4)
+            Group {
+                if viewModel.isSigningIn {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                } else {
+                    Text("Sign in")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 44)
+            .padding(.vertical, 4)
         }
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -244,7 +272,7 @@ struct LoginView: View {
                       ? Color.acmeNavy
                       : Color.acmeNavy.opacity(0.4))
         )
-        .disabled(!viewModel.isSignInEnabled)
+        .disabled(!viewModel.isSignInEnabled || viewModel.isSigningIn)
         .accessibilityIdentifier("LoginView.signInButton")
     }
 
