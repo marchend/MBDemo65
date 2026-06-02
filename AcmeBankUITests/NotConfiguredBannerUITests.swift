@@ -1,5 +1,4 @@
 import XCTest
-import AcmeBank
 
 /// XCUITest that proves the composition-root + banner wiring works on
 /// CI without any Okta secrets.
@@ -13,13 +12,21 @@ import AcmeBank
 /// existing `ErrorBannerView` renders that copy inside `LoginView`.
 ///
 /// We only assert the banner when the build under test is actually
-/// not-configured (`OktaConfig.isConfigured == false`). When the test
+/// not-configured (`isOktaConfigured == false`). When the test
 /// runner *does* have secrets exported (developer machine, signed CI
 /// job), this suite still runs but skips the banner assertion and
 /// only checks that the post-auth greeting is not yet on screen at
 /// launch — i.e. the app starts on `LoginView`, not `LandingView`.
 /// That keeps the suite passing in both environments without
 /// pretending to verify something that didn't happen.
+///
+/// **Note on the local probe:** this file deliberately does NOT
+/// `import AcmeBank`. UI-test bundles run out-of-process and are not
+/// linked against the host app's dylib (no `-bundle_loader`), so any
+/// reference to an `AcmeBank` symbol produces a link-time "Undefined
+/// symbol" error. We replicate the static `OktaConfig.isConfigured`
+/// logic inline as a fileprivate helper instead — same semantics, no
+/// linkage required.
 final class NotConfiguredBannerUITests: XCTestCase {
 
     // MARK: - Setup
@@ -36,6 +43,33 @@ final class NotConfiguredBannerUITests: XCTestCase {
     override func tearDownWithError() throws {
         app = nil
         try super.tearDownWithError()
+    }
+
+    // MARK: - Local probe
+
+    /// Sentinel written by `InjectOktaConfig.sh` whenever a build-time
+    /// `OKTA_*` var is missing. Duplicated here (instead of imported
+    /// from `OktaConfig.sentinel`) because UI-test bundles cannot link
+    /// against the app module — see file header.
+    private static let oktaNotConfiguredSentinel = "__OKTA_NOT_CONFIGURED__"
+
+    /// Mirror of `OktaConfig.isConfigured(in:)` — replicated here so
+    /// the UI-test bundle does not need to link against `AcmeBank`.
+    /// Returns `true` only when all four `OKTA_*` vars are present in
+    /// the test runner's process environment, non-empty, and not the
+    /// build-time sentinel.
+    private static func isOktaConfigured() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        let required = ["OKTA_ISSUER", "OKTA_CLIENT_ID", "OKTA_REDIRECT_URI", "OKTA_SCOPES"]
+        for key in required {
+            guard let value = env[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty,
+                  value != oktaNotConfiguredSentinel
+            else {
+                return false
+            }
+        }
+        return true
     }
 
     // MARK: - Tests
@@ -67,7 +101,7 @@ final class NotConfiguredBannerUITests: XCTestCase {
         // to the test runner). On a secrets-bearing build the banner
         // is correctly hidden, so we'd false-positive if we asserted
         // its presence unconditionally.
-        if !OktaConfig.isConfigured {
+        if !Self.isOktaConfigured() {
             let expectedCopy = "Okta is not configured on this build — see README."
 
             // `ErrorBannerView` uses `.accessibilityElement(children:

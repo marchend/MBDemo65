@@ -1,5 +1,4 @@
 import XCTest
-import AcmeBank
 
 /// End-to-end XCUITest that drives a real sign-in against the live
 /// Okta tenant and asserts the post-auth `LandingView` displays the
@@ -11,13 +10,17 @@ import AcmeBank
 /// (`OKTA_ISSUER`, `OKTA_CLIENT_ID`, `OKTA_REDIRECT_URI`,
 /// `OKTA_SCOPES`) so the app under test was actually built against a
 /// real tenant. When any of those is missing, every test in this
-/// suite skips via `XCTSkipUnless(OktaConfig.isConfigured, …)` —
+/// suite skips via `XCTSkipUnless(Self.isOktaConfigured(), …)` —
 /// keeping CI without secrets green.
 ///
-/// `OktaConfig.isConfigured` here is the static, process-env-based
-/// probe — see the doc comment on that property for why
-/// `load().isConfigured` won't do (the UI test runner is a separate
-/// process with its own `Bundle.main`).
+/// `Self.isOktaConfigured()` is a process-env probe — a local mirror
+/// of `OktaConfig.isConfigured(in:)`. We replicate the logic inline
+/// rather than calling into `AcmeBank` because UI-test bundles run
+/// out-of-process and are NOT linked against the host app dylib (no
+/// `-bundle_loader`), so any `import AcmeBank` symbol reference
+/// produces a link-time "Undefined symbol" error. The semantics match
+/// exactly: all four `OKTA_*` vars present, non-empty, and not the
+/// build-time sentinel.
 ///
 /// **Credential injection:** we pass the test account's username and
 /// password to the app under test via `XCUIApplication.launchEnvironment`,
@@ -54,6 +57,33 @@ final class SignInToLandingUITests: XCTestCase {
         try super.tearDownWithError()
     }
 
+    // MARK: - Local probe
+
+    /// Sentinel written by `InjectOktaConfig.sh` whenever a build-time
+    /// `OKTA_*` var is missing. Duplicated here (instead of imported
+    /// from `OktaConfig.sentinel`) because UI-test bundles cannot link
+    /// against the app module — see file header.
+    private static let oktaNotConfiguredSentinel = "__OKTA_NOT_CONFIGURED__"
+
+    /// Mirror of `OktaConfig.isConfigured(in:)` — replicated here so
+    /// the UI-test bundle does not need to link against `AcmeBank`.
+    /// Returns `true` only when all four `OKTA_*` vars are present in
+    /// the test runner's process environment, non-empty, and not the
+    /// build-time sentinel.
+    private static func isOktaConfigured() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        let required = ["OKTA_ISSUER", "OKTA_CLIENT_ID", "OKTA_REDIRECT_URI", "OKTA_SCOPES"]
+        for key in required {
+            guard let value = env[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty,
+                  value != oktaNotConfiguredSentinel
+            else {
+                return false
+            }
+        }
+        return true
+    }
+
     // MARK: - Tests
 
     /// Drives the full sign-in form against the real Okta tenant and
@@ -61,7 +91,7 @@ final class SignInToLandingUITests: XCTestCase {
     /// account's `name` claim and its `email` claim.
     func test_validCredentials_navigatesToLandingView() throws {
         try XCTSkipUnless(
-            OktaConfig.isConfigured,
+            Self.isOktaConfigured(),
             "Okta env vars not set — skipping end-to-end sign-in test"
         )
 
