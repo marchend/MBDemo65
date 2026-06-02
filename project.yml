@@ -24,7 +24,17 @@ targets:
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         ENABLE_USER_SCRIPT_SANDBOXING: "NO"
-        CODE_SIGN_ENTITLEMENTS: AcmeBank/AcmeBank.entitlements
+        # NOTE: CODE_SIGN_ENTITLEMENTS intentionally omitted.
+        # On the CI simulator build (CODE_SIGNING_ALLOWED=NO) the
+        # $(AppIdentifierPrefix) token in keychain-access-groups is
+        # never substituted, leaving a malformed access-group entitlement
+        # that causes secd to reject every SecItem* call with
+        # errSecMissingEntitlement (-34018). KeychainStore queries set
+        # kSecUseDataProtectionKeychain: true, so items round-trip
+        # through the simulator's default per-bundle-ID access group
+        # cleanly without an explicit entitlements file. A future
+        # signed-device build path can re-apply the entitlements file
+        # via a separate xcconfig / build configuration.
     postBuildScripts:
       - name: Inject Okta Config from Env Vars
         # Bridges OKTA_* env vars from the calling shell into the built
