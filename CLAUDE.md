@@ -40,8 +40,8 @@ xcodebuild test \
 ```
 AcmeBank/                   ← SwiftUI source root (XcodeGen glob: sources: [AcmeBank])
   App/                      ← @main entry point + root views (implemented)
+  Auth/                     ← UserSession, KeychainStore, AuthService, OktaAuthService (implemented; not yet wired into LoginViewModel)
   Configuration/            ← OktaConfig.swift + InjectOktaConfig.sh Run Script (implemented)
-  Core/Auth/                ← AuthService, KeychainStore, UserSession (deferred)
   Core/Networking/          ← APIClient, APIRouter, APIError, RequestInterceptor (deferred)
   Core/Notifications/       ← AppNotification, NotificationPublisher (deferred)
   Core/Extensions/          ← Decimal+Currency, Date+Greeting, String+Initials (deferred)
@@ -89,9 +89,11 @@ scripted `xcodebuild`).
 - **Coordinator hierarchy:** `AppCoordinator` → `LoginCoordinator` / `TabBarCoordinator` → (`HomeCoordinator`, `TransferCoordinator`, `CardsCoordinator`, `MoreCoordinator`).
 
 ### Authentication — Okta OIDC (in progress)
-- `AuthServiceProtocol`: `signIn()`, `signOut()`, `refreshTokenIfNeeded()`, `isSignedIn`.
-- Tokens stored in Keychain via `KeychainStore` (always use `kSecUseDataProtectionKeychain: true` for CI simulator compatibility).
-- `UserSession` value type passed through coordinators; never stored in `UserDefaults` or a global singleton.
+- `AuthService` protocol (`AcmeBank/Auth/AuthService.swift`): `signIn(username:password:keepSignedIn:) async throws -> UserSession`. Errors are typed via `AuthError` (`invalidCredentials`, `networkError`, `mfaRequired`, `notConfigured`, `unexpected`) — implementations MUST funnel everything through these cases so the UI's typed `catch let e as AuthError` never falls through to a generic catch.
+- Concrete `OktaAuthService` short-circuits `.notConfigured` before any network call and uses a `DirectAuthFlowFactory` seam so unit tests can inject a fake flow.
+- Tokens stored in Keychain via `KeychainStore` (always use `kSecUseDataProtectionKeychain: true` for CI simulator compatibility). Refresh token is persisted ONLY when "Keep me signed in" was checked; sign-in with the box unchecked actively *deletes* any stale refresh token.
+- Keychain write failures inside `signIn` are best-effort (logged, swallowed) — they MUST NOT collapse a successful Okta auth into a phantom `.networkError` banner.
+- `UserSession` value type passed through coordinators; never stored in `UserDefaults` or a global singleton. Refresh token is NOT a `UserSession` field — it lives only in the Keychain.
 - Tenant config loaded via `OktaConfig.load()` (see "Okta Build Configuration" above).
 
 ### Networking (deferred — future PR)
@@ -107,7 +109,7 @@ scripted `xcodebuild`).
 Any Keychain query **must** include `kSecUseDataProtectionKeychain: true`. Without this flag, `SecItem*` calls fail with `errSecMissingEntitlement` (-34018) in CI's `CODE_SIGNING_ALLOWED=NO` simulator runs. The `AcmeBank/AcmeBank.entitlements` file (already committed) handles the signed-device path; the flag handles the simulator path.
 
 ## Deferred Work
-- Authentication runtime — AuthService wiring DirectAuth, KeychainStore, UserSession — future PR
+- LoginViewModel wiring — call `OktaAuthService.signIn` from `onSignIn`, map `AuthError` to banner copy, drive `isSigningIn` loading state — future PR
 - MVVM+Coordinator wiring (AppCoordinator, RootView, TabBarCoordinator, all feature coordinators) — future PR
 - Networking layer (APIClient, APIRouter, APIError, RequestInterceptor) — future PR
 - Domain models (Account, Transaction, Customer, TransferRequest) — future PR
