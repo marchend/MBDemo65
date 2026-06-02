@@ -167,16 +167,21 @@ public final class OktaAuthService: AuthService {
     }
 
     /// Heuristic: does the SDK error look like an explicit auth rejection
-    /// (invalid_grant / invalid_credentials) rather than a transport
-    /// failure? Used as a fallback when the SDK throws an error type we
-    /// don't pattern-match directly.
+    /// rather than a transport failure? Deliberately narrow: matches only
+    /// the RFC 6749 §5.2 `"invalid_grant"` literal, which Okta uses
+    /// specifically for credential rejection. Broader matches like
+    /// `"authentication failed"` were tried and rejected because a 5xx
+    /// outage whose diagnostic copy happens to contain the word
+    /// "authentication" would be misclassified as bad-password and
+    /// prompt the user to change a working credential.
+    ///
+    /// Used as a last-resort fallback when the SDK throws an error type
+    /// we don't pattern-match directly; anything else falls through to
+    /// `AuthError.unexpected` where the UI surfaces a generic
+    /// "something went wrong" rather than a misleading credential error.
     private static func looksLikeAuthRejection(_ error: Error) -> Bool {
         let s = String(describing: error).lowercased()
         return s.contains("invalid_grant")
-            || s.contains("invalid_credentials")
-            || s.contains("invalid username")
-            || s.contains("invalid password")
-            || s.contains("authentication failed")
     }
 }
 
@@ -229,8 +234,27 @@ public final class LiveDirectAuthFlow: DirectAuthFlowProtocol {
         let status = try await flow.start(username, with: .password(password))
         switch status {
         case .success(let token):
+            // Explicit guard rather than `?? ""`. A nil/empty `idToken`
+            // means the Okta app is misconfigured (typically the
+            // `openid` scope is absent from its scope list) — surfacing
+            // that as a diagnostic `AuthError.unexpected` here makes the
+            // misconfiguration visible in logs instead of letting the
+            // empty string flow into `UserSession.make` and produce a
+            // generic "malformed JWT" error downstream.
+            guard let rawIDToken = token.idToken?.rawValue, !rawIDToken.isEmpty else {
+                throw AuthError.unexpected(
+                    NSError(
+                        domain: "LiveDirectAuthFlow",
+                        code: -1,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "Okta token response contained no ID token — check that 'openid' is in the app's scope list."
+                        ]
+                    )
+                )
+            }
             return .success(
-                idToken: token.idToken?.rawValue ?? "",
+                idToken: rawIDToken,
                 accessToken: token.accessToken,
                 refreshToken: token.refreshToken
             )

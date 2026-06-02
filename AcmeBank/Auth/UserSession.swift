@@ -6,15 +6,19 @@ import UIKit
 /// Authenticated user state, derived from a successful Okta sign-in.
 ///
 /// `UserSession` is a value type passed forward through coordinators after
-/// login. It is intentionally `Codable` so it can be serialised when needed
-/// (e.g. for diagnostic snapshots) but it is **never** stored in
-/// `UserDefaults` or held in a global singleton — see `AGENT.md`.
+/// login. It is intentionally **NOT** `Codable`: it carries a live bearer
+/// `accessToken` and serialising it would invite callers to persist that
+/// credential outside the Keychain (to `UserDefaults`, an on-disk snapshot,
+/// iCloud, etc.). The Keychain is the only sanctioned home for the access
+/// token — see `AGENT.md`. If a future need for diagnostic serialisation
+/// arises, add a dedicated DTO that omits `accessToken` rather than
+/// reintroducing `Codable` conformance here.
 ///
 /// The refresh token is deliberately NOT a field on `UserSession`. Refresh
 /// tokens live only in the Keychain (and only when "Keep me signed in" was
 /// checked); they are never carried around in memory alongside the user's
 /// profile claims.
-public struct UserSession: Codable, Equatable {
+public struct UserSession: Equatable {
 
     // MARK: - Fields
 
